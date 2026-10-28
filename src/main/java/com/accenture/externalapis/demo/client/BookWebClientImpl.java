@@ -13,13 +13,20 @@ import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientException;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
 
 @Component
 public class BookWebClientImpl implements BookWebClient {
 
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(5);
+    private static final Retry RETRY_SPEC = Retry.backoff(2, Duration.ofMillis(100))
+            .maxBackoff(Duration.ofMillis(500))
+            .jitter(0)
+            .filter(BookWebClientImpl::isRetryable)
+            .onRetryExhaustedThrow((spec, signal) -> signal.failure());
 
     private final WebClient webClient;
 
@@ -39,6 +46,7 @@ public class BookWebClientImpl implements BookWebClient {
                         new ClientException("External service returned an empty response for " + endpoint)))
                 .timeout(REQUEST_TIMEOUT);
         return mapRequestErrors(response, endpoint)
+                .retryWhen(RETRY_SPEC)
                 .map(book -> toBookDto(book, endpoint));
     }
 
@@ -54,6 +62,7 @@ public class BookWebClientImpl implements BookWebClient {
                         new ClientException("External service returned an empty response for " + endpoint)))
                 .timeout(REQUEST_TIMEOUT);
         return mapRequestErrors(response, endpoint)
+                .retryWhen(RETRY_SPEC)
                 .flatMapMany(Flux::fromArray)
                 .map(book -> toBookDto(book, endpoint));
     }
@@ -97,5 +106,15 @@ public class BookWebClientImpl implements BookWebClient {
             throw new ClientException("External service returned a null book for " + endpoint);
         }
         return response.toBookDto();
+    }
+
+    private static boolean isRetryable(Throwable failure) {
+        if (!(failure instanceof ClientException clientException)) {
+            return false;
+        }
+        Throwable cause = clientException.getCause();
+        return cause instanceof WebClientRequestException
+                || cause instanceof WebClientResponseException responseException
+                        && responseException.getStatusCode().is5xxServerError();
     }
 }

@@ -13,6 +13,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -20,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -138,6 +140,27 @@ class BookWebClientImplTest {
                         WebClientResponseException.class,
                         "503"))
                 .verify();
+
+        assertEquals(1, server.requestCount("/api/books/991"));
+        assertEquals(3, server.requestCount("/api/books"));
+    }
+
+    @Test
+    void retriesTransientServerErrors() {
+        server.respondSequence(
+                "/api/books/1",
+                new StubResponse(503, "service unavailable", Duration.ZERO),
+                new StubResponse(200, FIRST_BOOK_RESPONSE, Duration.ZERO));
+
+        StepVerifier.create(client.getBookAsync(1L))
+                .expectNext(new BookDto(
+                        "The Spaghetti Whisperer",
+                        "Sir Reginald Fluffington III",
+                        "Software Engineering",
+                        34.99))
+                .verifyComplete();
+
+        assertEquals(2, server.requestCount("/api/books/1"));
     }
 
     @Test
@@ -175,6 +198,8 @@ class BookWebClientImplTest {
                         TimeoutException.class,
                         "timed out"))
                 .verify();
+
+        assertEquals(1, server.requestCount("/api/books/1"));
     }
 
     @Test
@@ -214,8 +239,9 @@ class BookWebClientImplTest {
 
         private final HttpServer httpServer;
         private final ExecutorService executor = Executors.newCachedThreadPool();
-        private final Map<String, StubResponse> responses = new ConcurrentHashMap<>();
+        private final Map<String, List<StubResponse>> responses = new ConcurrentHashMap<>();
         private final Set<String> requestedPaths = ConcurrentHashMap.newKeySet();
+        private final Map<String, AtomicInteger> requestCounts = new ConcurrentHashMap<>();
         private boolean stopped;
 
         private StubServer() throws IOException {
@@ -230,7 +256,7 @@ class BookWebClientImplTest {
         }
 
         private void respond(String path, String body) {
-            respond(path, 200, body, Duration.ZERO);
+            respondSequence(path, new StubResponse(200, body, Duration.ZERO));
         }
 
         private void respond(String path, int status, String body) {
@@ -238,20 +264,33 @@ class BookWebClientImplTest {
         }
 
         private void respond(String path, int status, String body, Duration delay) {
-            responses.put(path, new StubResponse(status, body, delay));
+            respondSequence(path, new StubResponse(status, body, delay));
+        }
+
+        private void respondSequence(String path, StubResponse... sequence) {
+            responses.put(path, List.copyOf(Arrays.asList(sequence)));
         }
 
         private Set<String> requestedPaths() {
             return Set.copyOf(requestedPaths);
         }
 
+        private int requestCount(String path) {
+            AtomicInteger count = requestCounts.get(path);
+            return count == null ? 0 : count.get();
+        }
+
         private void handleRequest(HttpExchange exchange) throws IOException {
             try {
                 String path = exchange.getRequestURI().getPath();
                 requestedPaths.add(path);
-                StubResponse response = responses.getOrDefault(
-                        path,
-                        new StubResponse(404, "not found", Duration.ZERO));
+                int requestNumber = requestCounts
+                        .computeIfAbsent(path, ignored -> new AtomicInteger())
+                        .incrementAndGet();
+                List<StubResponse> sequence = responses.get(path);
+                StubResponse response = sequence == null
+                        ? new StubResponse(404, "not found", Duration.ZERO)
+                        : sequence.get(Math.min(requestNumber - 1, sequence.size() - 1));
                 if (!response.delay().isZero()) {
                     Thread.sleep(response.delay().toMillis());
                 }
