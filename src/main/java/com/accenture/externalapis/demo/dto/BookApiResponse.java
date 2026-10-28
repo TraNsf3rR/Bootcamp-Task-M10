@@ -8,4 +8,8 @@ public record BookApiResponse(
         Double price,
         String isbn,
         Integer publishedYear) {
+
+    public BookDto toBookDto() {
+        return new BookDto(title, author, genre, price);
+    }
 }

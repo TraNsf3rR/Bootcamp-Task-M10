@@ -32,5 +32,10 @@ class BookApiResponseTest {
         assertEquals(34.99, response.price());
         assertEquals("978-0132350884", response.isbn());
         assertEquals(2008, response.publishedYear());
+        assertEquals(new BookDto(
+                "The Spaghetti Whisperer",
+                "Sir Reginald Fluffington III",
+                "Software Engineering",
+                34.99), response.toBookDto());
     }
 }

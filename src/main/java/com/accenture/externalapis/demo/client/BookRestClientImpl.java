@@ -1,32 +1,39 @@
 package com.accenture.externalapis.demo.client;
 
 import com.accenture.externalapis.demo.config.ExternalServiceProperties;
+import com.accenture.externalapis.demo.dto.BookApiResponse;
+import com.accenture.externalapis.demo.dto.BookDto;
+import java.util.Arrays;
+import java.util.List;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
-// TODO: Make this class implement BookRestClient.
 @Component
-public class BookRestClientImpl {
+public class BookRestClientImpl implements BookRestClient {
 
-    private RestClient restClient;
+    private final RestClient restClient;
 
     public BookRestClientImpl(RestClient.Builder builder, ExternalServiceProperties properties) {
-        // TODO: Build the RestClient using builder.baseUrl(properties.baseUrl()).build()
-        // and assign it to this.restClient
-        //
-        // Optional/bonus: this service doesn't require auth, but in a real API you would
-        // often also add builder.defaultHeader("Authorization", "Bearer " + token) here.
+        this.restClient = builder.baseUrl(properties.baseUrl()).build();
     }
 
-    // TODO: Implement getBook(Long id) - fetch one book from GET /books/{id} as a
-    // BookApiResponse, then map it onto a BookDto (only keep the fields BookDto needs).
-    //
-    // TODO: Handle the main RestClient error cases and rethrow them as ClientException:
-    //  - HttpClientErrorException (4xx, e.g. book not found)
-    //  - HttpServerErrorException (5xx, e.g. the faulty/teapot book)
-    //  - ResourceAccessException (connection refused / timeout - the external service is unreachable)
+    @Override
+    public BookDto getBook(Long id) {
+        BookApiResponse response = restClient.get()
+                .uri("/books/{id}", id)
+                .retrieve()
+                .body(BookApiResponse.class);
+        return response.toBookDto();
+    }
 
-    // TODO: Implement getAllBooks() - fetch all books from GET /books as
-    // BookApiResponse[], then map each one onto a BookDto. Handle the same error
-    // cases as getBook() above.
+    @Override
+    public List<BookDto> getAllBooks() {
+        BookApiResponse[] responses = restClient.get()
+                .uri("/books")
+                .retrieve()
+                .body(BookApiResponse[].class);
+        return Arrays.stream(responses)
+                .map(BookApiResponse::toBookDto)
+                .toList();
+    }
 }
