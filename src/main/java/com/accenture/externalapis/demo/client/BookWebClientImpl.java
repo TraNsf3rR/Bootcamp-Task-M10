@@ -1,6 +1,7 @@
 package com.accenture.externalapis.demo.client;
 
 import com.accenture.externalapis.demo.config.ExternalServiceProperties;
+import com.accenture.externalapis.demo.dto.BookApiResponse;
 import com.accenture.externalapis.demo.dto.BookDto;
 import java.util.List;
 import org.springframework.stereotype.Component;
@@ -11,8 +12,6 @@ import reactor.core.publisher.Mono;
 @Component
 public class BookWebClientImpl implements BookWebClient {
 
-    private static final String NOT_IMPLEMENTED_MESSAGE = "WebClient support is not implemented yet.";
-
     private final WebClient webClient;
 
     public BookWebClientImpl(WebClient.Builder builder, ExternalServiceProperties properties) {
@@ -21,16 +20,25 @@ public class BookWebClientImpl implements BookWebClient {
 
     @Override
     public Mono<BookDto> getBookAsync(Long id) {
-        return Mono.error(new UnsupportedOperationException(NOT_IMPLEMENTED_MESSAGE));
+        return webClient.get()
+                .uri("/books/{id}", id)
+                .retrieve()
+                .bodyToMono(BookApiResponse.class)
+                .map(BookApiResponse::toBookDto);
     }
 
     @Override
     public Flux<BookDto> getAllBooksAsync() {
-        return Flux.error(new UnsupportedOperationException(NOT_IMPLEMENTED_MESSAGE));
+        return webClient.get()
+                .uri("/books")
+                .retrieve()
+                .bodyToFlux(BookApiResponse.class)
+                .map(BookApiResponse::toBookDto);
     }
 
     @Override
     public Mono<List<BookDto>> getBooksInParallel(Long id1, Long id2) {
-        return Mono.error(new UnsupportedOperationException(NOT_IMPLEMENTED_MESSAGE));
+        return Mono.zip(getBookAsync(id1), getBookAsync(id2))
+                .map(tuple -> List.of(tuple.getT1(), tuple.getT2()));
     }
 }
